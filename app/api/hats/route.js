@@ -1,15 +1,15 @@
-// app/api/hats/route.ts
+// app/api/hats/route.js
 
 import { NextResponse } from "next/server";
 
-// Force Node runtime so Buffer is available
+// Make sure we're on the Node runtime so Buffer works
 export const runtime = "nodejs";
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
 const EBAY_SELLER_ID = process.env.EBAY_SELLER_ID;
 
-// Basic validation so we fail loudly if env vars are missing
+// Throw a clear error if env vars are missing
 function assertEnv() {
   if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET || !EBAY_SELLER_ID) {
     throw new Error(
@@ -19,7 +19,7 @@ function assertEnv() {
 }
 
 // Get an OAuth access token from eBay using client_credentials
-async function getEbayAccessToken(): Promise<string> {
+async function getEbayAccessToken() {
   assertEnv();
 
   const credentials = Buffer.from(
@@ -36,7 +36,7 @@ async function getEbayAccessToken(): Promise<string> {
       },
       body: new URLSearchParams({
         grant_type: "client_credentials",
-        // This scope is always granted and avoids the invalid_scope error
+        // This basic scope is always valid and avoids invalid_scope errors
         scope: "https://api.ebay.com/oauth/api_scope",
       }),
     }
@@ -48,7 +48,7 @@ async function getEbayAccessToken(): Promise<string> {
     throw new Error("Failed to get eBay access token");
   }
 
-  const data = (await tokenResponse.json()) as { access_token: string };
+  const data = await tokenResponse.json();
   return data.access_token;
 }
 
@@ -58,12 +58,11 @@ export async function GET() {
     const token = await getEbayAccessToken();
 
     // Build Browse API search query
-    // Docs: /buy/browse/v1/item_summary/search
     const params = new URLSearchParams({
       q: "hat",
       limit: "100",
-      // Filter results to only your seller
-      // Syntax: filter=sellers:{seller1|seller2}
+      // Filter results to your seller
+      // Syntax: sellers:{seller1|seller2}
       filter: `sellers:{${EBAY_SELLER_ID}}`,
     });
 
@@ -86,10 +85,8 @@ export async function GET() {
     }
 
     const data = await response.json();
-
-    // You can massage/trim data here if you want, but for now just return it
     return NextResponse.json(data);
-  } catch (err: any) {
+  } catch (err) {
     console.error("Unhandled error in /api/hats:", err);
     return NextResponse.json(
       { error: "Internal server error talking to eBay" },
