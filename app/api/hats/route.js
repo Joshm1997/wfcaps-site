@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 function assertEnv(name: string, value: string | undefined): string {
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -22,8 +25,11 @@ async function getEbayAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      // General public data scope – enough for Browse
-      scope: "https://api.ebay.com/oauth/api_scope",
+      // Include general + browse scope. If your keyset doesn’t have browse, keep just api_scope.
+      scope: [
+        "https://api.ebay.com/oauth/api_scope",
+        "https://api.ebay.com/oauth/api_scope/buy.browse.readonly",
+      ].join(" "),
     }),
   });
 
@@ -40,6 +46,7 @@ async function getEbayAccessToken(): Promise<string> {
 
 export async function GET() {
   try {
+    // IMPORTANT: this should be your eBay *username*, e.g. "GracefullySaving"
     const seller = assertEnv("EBAY_SELLER_ID", process.env.EBAY_SELLER_ID);
 
     // 2) Get access token
@@ -58,6 +65,7 @@ export async function GET() {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
         },
       }
     );
@@ -86,7 +94,7 @@ export async function GET() {
         image: item.image?.imageUrl ?? item.thumbnailImages?.[0]?.imageUrl ?? null,
         url: item.itemWebUrl,
         condition: item.condition,
-        quantity: item.quantity,
+        quantity: item.quantity ?? item.estimatedAvailableQuantity ?? null,
         seller: item.seller?.username,
       })) ?? [];
 
