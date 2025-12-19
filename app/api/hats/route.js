@@ -1,61 +1,84 @@
+// app/api/hats/route.ts
+
 import { NextResponse } from "next/server";
 
-const EBAY_SELLER = process.env.EBAY_SELLER_ID;
+// Force Node runtime so Buffer is available
+export const runtime = "nodejs";
 
-async function getEbayAccessToken() {
-  const clientId = process.env.EBAY_CLIENT_ID;
-  const clientSecret = process.env.EBAY_CLIENT_SECRET;
+const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
+const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
+const EBAY_SELLER_ID = process.env.EBAY_SELLER_ID;
 
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
-    "base64"
+// Basic validation so we fail loudly if env vars are missing
+function assertEnv() {
+  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET || !EBAY_SELLER_ID) {
+    throw new Error(
+      "Missing one of EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, or EBAY_SELLER_ID environment variables."
+    );
+  }
+}
+
+// Get an OAuth access token from eBay using client_credentials
+async function getEbayAccessToken(): Promise<string> {
+  assertEnv();
+
+  const credentials = Buffer.from(
+    `${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}`
+  ).toString("base64");
+
+  const tokenResponse = await fetch(
+    "https://api.ebay.com/identity/v1/oauth2/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        // This scope is always granted and avoids the invalid_scope error
+        scope: "https://api.ebay.com/oauth/api_scope",
+      }),
+    }
   );
 
-  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      scope:
-        "https://api.ebay.com/oauth/api_scope https://api.ebay.com/oauth/api_scope/buy.browse",
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
+  if (!tokenResponse.ok) {
+    const text = await tokenResponse.text();
     console.error("Error getting eBay token:", text);
-    throw new Error("Failed to get eBay token");
+    throw new Error("Failed to get eBay access token");
   }
 
-  const data = await response.json();
+  const data = (await tokenResponse.json()) as { access_token: string };
   return data.access_token;
 }
 
+// GET /api/hats
 export async function GET() {
   try {
     const token = await getEbayAccessToken();
 
+    // Build Browse API search query
+    // Docs: /buy/browse/v1/item_summary/search
     const params = new URLSearchParams({
-      seller: EBAY_SELLER,
       q: "hat",
       limit: "100",
+      // Filter results to only your seller
+      // Syntax: filter=sellers:{seller1|seller2}
+      filter: `sellers:{${EBAY_SELLER_ID}}`,
     });
 
-    const response = await fetch(
-      `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const url = `https://api.ebay.com/buy/browse/v1/item_summary/search?${params.toString()}`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
 
     if (!response.ok) {
       const text = await response.text();
-      console.error("Error from eBay Browse API:", text);
+      console.error("Error fetching hats from eBay:", text);
       return NextResponse.json(
         { error: "Failed to fetch hats from eBay" },
         { status: 500 }
@@ -64,21 +87,12 @@ export async function GET() {
 
     const data = await response.json();
 
-    const hats = (data.itemSummaries || []).map((item) => ({
-      id: item.itemId,
-      title: item.title,
-      price: item.price?.value,
-      currency: item.price?.currency,
-      quantity: item.availableQuantity,
-      image: item.image?.imageUrl,
-      url: item.itemWebUrl,
-    }));
-
-    return NextResponse.json({ hats });
-  } catch (err) {
-    console.error("Error in /api/hats:", err);
+    // You can massage/trim data here if you want, but for now just return it
+    return NextResponse.json(data);
+  } catch (err: any) {
+    console.error("Unhandled error in /api/hats:", err);
     return NextResponse.json(
-      { error: "Server error fetching hats" },
+      { error: "Internal server error talking to eBay" },
       { status: 500 }
     );
   }
