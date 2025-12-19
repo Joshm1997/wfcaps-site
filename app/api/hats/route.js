@@ -3,15 +3,15 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function assertEnv(name: string, value: string | undefined): string {
+function assertEnv(name, value) {
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
 }
 
-// 1) Get an OAuth access token using client_credentials
-async function getEbayAccessToken(): Promise<string> {
+// Get an OAuth access token using client_credentials
+async function getEbayAccessToken() {
   const clientId = assertEnv("EBAY_CLIENT_ID", process.env.EBAY_CLIENT_ID);
   const clientSecret = assertEnv("EBAY_CLIENT_SECRET", process.env.EBAY_CLIENT_SECRET);
 
@@ -25,7 +25,6 @@ async function getEbayAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      // Include general + browse scope. If your keyset doesn’t have browse, keep just api_scope.
       scope: [
         "https://api.ebay.com/oauth/api_scope",
         "https://api.ebay.com/oauth/api_scope/buy.browse.readonly",
@@ -36,23 +35,20 @@ async function getEbayAccessToken(): Promise<string> {
   const text = await response.text();
 
   if (!response.ok) {
-    console.error("Error getting eBay token:", text);
+    console.error("EBAY TOKEN ERROR:", text);
     throw new Error(`Failed to get eBay token: ${text}`);
   }
 
   const data = JSON.parse(text);
-  return data.access_token as string;
+  return data.access_token;
 }
 
 export async function GET() {
   try {
-    // IMPORTANT: this should be your eBay *username*, e.g. "GracefullySaving"
     const seller = assertEnv("EBAY_SELLER_ID", process.env.EBAY_SELLER_ID);
 
-    // 2) Get access token
     const token = await getEbayAccessToken();
 
-    // 3) Call Browse API for this seller's hats
     const params = new URLSearchParams({
       q: "hat",
       seller,
@@ -73,12 +69,9 @@ export async function GET() {
     const text = await response.text();
 
     if (!response.ok) {
-      console.error("eBay Browse API error:", text);
+      console.error("EBAY BROWSE ERROR:", text);
       return NextResponse.json(
-        {
-          error: "eBay Browse API failed",
-          details: text,
-        },
+        { error: "EBAY_BROWSE_FAILED", details: text },
         { status: 500 }
       );
     }
@@ -86,7 +79,7 @@ export async function GET() {
     const data = JSON.parse(text);
 
     const items =
-      data.itemSummaries?.map((item: any) => ({
+      data.itemSummaries?.map((item) => ({
         id: item.itemId,
         title: item.title,
         price: item.price?.value,
@@ -99,11 +92,12 @@ export async function GET() {
       })) ?? [];
 
     return NextResponse.json({ items });
-  } catch (err: any) {
-    console.error("Unhandled error in /api/hats:", err);
+  } catch (err) {
+    console.error("EBAY ROUTE ERROR:", err);
     return NextResponse.json(
       {
-        error: err?.message ?? "Unknown error in /api/hats",
+        error: "EBAY_ROUTE_ERROR",
+        details: err?.message ?? "Unknown error",
       },
       { status: 500 }
     );
